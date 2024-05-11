@@ -10,6 +10,8 @@ import {
 
 import { ethers, UnsignedTransaction } from "ethers";
 import { bufferToHex } from "ethereumjs-util";
+import { TypedDataDomain, TypedDataField, TypedDataSigner } from "@ethersproject/abstract-signer";
+import { _TypedDataEncoder } from "ethers/lib/utils";
 import { getPublicKey, getEthereumAddress, requestKmsSignature, determineCorrectV } from "./util/gcp-kms-utils";
 import { validateVersion } from "./util/signature-utils";
 
@@ -25,10 +27,19 @@ export interface GcpKmsSignerCredentials {
   keyVersion: string;
 }
 
-export class GcpKmsSigner extends ethers.Signer {
+export declare abstract class AbstractSigner extends ethers.Signer implements TypedDataSigner {
+  address: string;
+
+  abstract _signTypedData(
+    domain: TypedDataDomain,
+    types: Record<string, Array<TypedDataField>>,
+    value: Record<string, any>
+  ): Promise<string>;
+}
+
+export class GcpKmsSigner extends AbstractSigner {
   kmsCredentials: GcpKmsSignerCredentials;
 
-  ethereumAddress: string;
 
   constructor(kmsCredentials: GcpKmsSignerCredentials, provider?: ethers.providers.Provider) {
     super();
@@ -37,11 +48,11 @@ export class GcpKmsSigner extends ethers.Signer {
   }
 
   async getAddress(): Promise<string> {
-    if (this.ethereumAddress === undefined) {
+    if (this.address === undefined) {
       const key = await getPublicKey(this.kmsCredentials);
-      this.ethereumAddress = getEthereumAddress(key);
+      this.address = getEthereumAddress(key);
     }
-    return Promise.resolve(this.ethereumAddress);
+    return Promise.resolve(this.address);
   }
 
   async _signDigest(digestString: string): Promise<string> {
@@ -117,5 +128,21 @@ export class GcpKmsSigner extends ethers.Signer {
 
   connect(provider: ethers.providers.Provider): GcpKmsSigner {
     return new GcpKmsSigner(this.kmsCredentials, provider);
+  }
+
+  async _signTypedData(
+    domain: TypedDataDomain,
+    types: Record<string, Array<TypedDataField>>,
+    value: Record<string, any>
+  ): Promise<string> {
+    // Populate any ENS names
+    const populated = await _TypedDataEncoder.resolveNames(domain, types, value, (name: string) => {
+      if (this.provider == null) {
+        throw new Error(`cannot resolve ENS names without a provider, name: ${name}`);
+      }
+      return this.provider.resolveName(name);
+    });
+
+    return this._signDigest(_TypedDataEncoder.hash(populated.domain, types, populated.value));
   }
 }

@@ -45,7 +45,7 @@ console.log(tx);
 `git clone` this repo
 
 ```sh
-$ git clone https://github.com/openlawteam/ethers-gcp-kms-signer my-module
+$ git clone https://github.com/toolchainX/ethers-gcp-kms-signer my-module
 $ cd my-module
 $ rm -rf .git
 $ npm install # or yarn
